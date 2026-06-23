@@ -1,0 +1,13 @@
+# Ignore compiled kernel module objects
+*.ko
+*.o
+*.mod
+*.mod.c
+*.cmd
+*.symvers
+*.order
+.tmp_versions/
+
+# Ignore userspace compiled binaries (if they don't have extensions)
+# Or explicitly ignore your output directories:
+___output_files/
