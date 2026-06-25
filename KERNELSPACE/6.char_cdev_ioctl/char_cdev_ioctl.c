@@ -9,17 +9,21 @@
 #define DEVICE_NAME "mychar"
 #define CLASS_NAME  "mychar_class"
 
+struct my_cfg {
+    int id;
+    int speed;
+    char name[32];
+}my_cfg;
+
 /* IOCTL Commands */
 #define MY_IOCTL_MAGIC 'A'
 
-#define SET_VALUE _IOW(MY_IOCTL_MAGIC, 1, int)
-#define GET_VALUE _IOR(MY_IOCTL_MAGIC, 2, int)
+#define SET_VALUE _IOW(MY_IOCTL_MAGIC, 1, struct my_cfg )
+#define GET_VALUE _IOR(MY_IOCTL_MAGIC, 2, struct my_cfg )
 
 static dev_t dev_num;
 static struct cdev my_cdev;
 static struct class *my_class;
-
-static int stored_value;
 
 /* Open */
 static int my_open(struct inode *inode, struct file *file)
@@ -75,22 +79,22 @@ static long my_ioctl(struct file *file,
 
     case SET_VALUE:
 
-        if (copy_from_user(&stored_value,
-                           (int __user *)arg,
-                           sizeof(stored_value)))
+        if (copy_from_user(&my_cfg,
+                           (struct my_cfg __user *)arg,
+                           sizeof(my_cfg)))
             return -EFAULT;
 
-        pr_info("SET_VALUE = %d\n", stored_value);
+        pr_info("SET_VALUE = id: %d, speed: %d, name: %s\n", my_cfg.id, my_cfg.speed, my_cfg.name);
         break;
 
     case GET_VALUE:
 
-        if (copy_to_user((int __user *)arg,
-                         &stored_value,
-                         sizeof(stored_value)))
+        if (copy_to_user((struct my_cfg __user *)arg,
+                         &my_cfg,
+                         sizeof(my_cfg)))
             return -EFAULT;
 
-        pr_info("GET_VALUE = %d\n", stored_value);
+        pr_info("GET_VALUE = id: %d, speed: %d, name: %s\n", my_cfg.id, my_cfg.speed, my_cfg.name);
         break;
 
     default:
