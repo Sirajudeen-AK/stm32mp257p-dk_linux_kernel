@@ -1,39 +1,41 @@
 /*
-Data flow in char device driver with waiting queue
+Driver poll() flowchart:
 
-			cat /dev/mychar0
-			      |
-			      v
-			   read()
-			      |
-			      v
-			No data?
-			      |
-			      +----YES---->
-			                 Sleep
-			                    |
-			                    |
-			              wait_queue
-			                    |
-			                    |
-			echo hello > /dev/mychar0
-			                    |
-			                    |
-			             wake_up()
-			                    |
-			                    v
-			               read() wakes
-			                    |
-			                    v
-			            returns data
+			Userspace
+				|
+			poll()
+				|
+				v
+			Driver poll()
+				|
+				+--> data available ?
+						|
+					------------
+					|			|
+				   YES         NO
+					|			|
+					v			|	
+			return READY	 	|
+								|
+								v
+						sleep in waitqueue
+
+			write()/ISR
+				|
+				v
+			wake_up_interruptible()
+
+			poll() returns
+			read() executes
+
 */
-
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/uaccess.h>
 #include <linux/wait.h>
+#include <linux/poll.h>
 
 #define DEVICE_NAME "mychar"
 
@@ -44,20 +46,19 @@ static struct class *my_class;
 static char buffer[100];
 static int data_available;
 
-/* Declare and initialize a wait queue head */
 static DECLARE_WAIT_QUEUE_HEAD(my_wq);
 
 static int my_open(struct inode *inode,
                    struct file *file)
 {
-    pr_info("opened\n");
+    pr_info("opened the Process-id %d\n", current->pid);
     return 0;
 }
 
 static int my_release(struct inode *inode,
                       struct file *file)
 {
-    pr_info("closed\n");
+    pr_info("closed the Process-id %d\n", current->pid);
     return 0;
 }
 
@@ -66,25 +67,10 @@ static ssize_t my_read(struct file *file,
                        size_t len,
                        loff_t *off)
 {
-    int ret;
     int data_len;
 
-    pr_info("read waiting...\n");
-
-	/*
-	Difference between wait_event and wait_event_interruptible?
-	
-		wait_event() - uninterruptible sleep
-		wait_event_interruptible() - interruptible sleep ( ctrl + C -> SIGINT )
-
-		Interruptible sleep is preferred in most cases, because it allows the process to be interrupted by signals.	
-	*/
-    ret = wait_event_interruptible(
-                my_wq,
-                data_available);
-
-    if (ret)
-        return ret;
+    if (!data_available)
+        return 0;
 
     data_len = strlen(buffer);
 
@@ -96,32 +82,16 @@ static ssize_t my_read(struct file *file,
 
     data_available = 0;
 
-    pr_info("read completed\n");
-
     return len;
 }
 
-/*
-			Why important for interviews?
-
-				Because UART, CAN, Ethernet, RPMsg, sensor drivers all use this exact pattern:
-
-				read()
-					|
-				wait_event_interruptible()
-
-				ISR/RX callback
-					|
-				wake_up_interruptible()
-
-*/
 static ssize_t my_write(struct file *file,
                         const char __user *buf,
                         size_t len,
                         loff_t *off)
 {
-    if (len > sizeof(buffer)-1)
-        len = sizeof(buffer)-1;
+    if (len > sizeof(buffer) - 1)
+        len = sizeof(buffer) - 1;
 
     if (copy_from_user(buffer, buf, len))
         return -EFAULT;
@@ -130,31 +100,38 @@ static ssize_t my_write(struct file *file,
 
     data_available = 1;
 
-/*
-		Where is wake_up_interruptible() called in real drivers?
-
-		Usually:
-
-			ISR
-			Bottom half
-			Workqueue
-			RX callback
-
-		Example CAN:
-			CAN frame received
-				|
-			  ISR
-				|
-			store frame
-				|
-			wake_up_interruptible()
-*/
-	/* Wake up any processes waiting for data */
+	/* Thundering Herd Problem */
     wake_up_interruptible(&my_wq);
 
-    pr_info("wakeup sent\n");
+    pr_info("Process ID %d data received: %s\n", current->pid, buffer);
 
     return len;
+}
+
+static __poll_t my_poll(struct file *file,
+                        struct poll_table_struct *wait)
+{
+	pr_info("poll entered pid=%d\n", current->pid);
+    /*
+     * Register current process
+     * into wait queue
+     */
+    poll_wait(file,
+              &my_wq,
+              wait);
+
+    /*
+     * If data exists,
+     * tell userspace read won't block
+     */
+    if (data_available){
+		pr_info("poll ready pid=%d\n", current->pid);
+		return POLLIN | POLLRDNORM;
+	}
+    
+	pr_info("poll exited pid=%d and data_available=%d\n", current->pid, data_available);
+
+    return 0;
 }
 
 static struct file_operations fops = {
@@ -163,6 +140,7 @@ static struct file_operations fops = {
     .release = my_release,
     .read = my_read,
     .write = my_write,
+    .poll = my_poll,
 };
 
 static int __init my_init(void)
@@ -194,13 +172,15 @@ static int __init my_init(void)
 
 static void __exit my_exit(void)
 {
-    device_destroy(my_class, dev_num);
+    device_destroy(my_class,
+                   dev_num);
 
     class_destroy(my_class);
 
     cdev_del(&my_cdev);
 
-    unregister_chrdev_region(dev_num, 1);
+    unregister_chrdev_region(dev_num,
+                             1);
 
     pr_info("unloaded\n");
 }
@@ -208,6 +188,7 @@ static void __exit my_exit(void)
 module_init(my_init);
 module_exit(my_exit);
 
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Siraj");
-MODULE_DESCRIPTION("Character device driver with waiting queue");
+MODULE_DESCRIPTION("Character device driver with poll() support");

@@ -6,6 +6,8 @@
 
 #define DEVICE_NAME "mychar"
 
+#define MINOR_DEVICES 4
+
 struct my_device {
     struct cdev cdev;
     char buffer[100];
@@ -16,7 +18,7 @@ struct my_device {
 static dev_t dev_num;
 static struct class *my_class;
 
-static struct my_device devices[4];
+static struct my_device devices[MINOR_DEVICES];
 
 /*
 *		Interview Question
@@ -113,11 +115,11 @@ static int __init my_init(void)
 {
     int i;
 
-    alloc_chrdev_region(&dev_num, 0, 4, DEVICE_NAME);
+    alloc_chrdev_region(&dev_num, 0, MINOR_DEVICES, DEVICE_NAME);
 
     my_class = class_create(DEVICE_NAME);
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < MINOR_DEVICES; i++) {
 
         devices[i].id = i;
 
@@ -131,7 +133,7 @@ static int __init my_init(void)
                       NULL,
                       MKDEV(MAJOR(dev_num), i),
                       NULL,
-                      "mychar%d",
+                      DEVICE_NAME "-%d",
                       i);
     }
 
@@ -144,7 +146,7 @@ static void __exit my_exit(void)
 {
     int i;
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < MINOR_DEVICES; i++) {
 
         device_destroy(my_class,
                        MKDEV(MAJOR(dev_num), i));
@@ -154,7 +156,7 @@ static void __exit my_exit(void)
 
     class_destroy(my_class);
 
-    unregister_chrdev_region(dev_num, 4);
+    unregister_chrdev_region(dev_num, MINOR_DEVICES);
 
     pr_info("Unloaded\n");
 }
