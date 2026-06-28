@@ -1,42 +1,80 @@
-Real interview question
+# poll / select / epoll — Deeper Notes
 
-1. Suppose 10 processes are polling.
-One message arrives.
-Should all 10 wake?
+These notes expand on two subtle, interview-favourite points behind
+`poll`/`select`/`epoll`.
 
-Usually:
-No
+---
 
-because:
-thundering herd problem
+## 1. The Thundering Herd Problem
 
-10 processes wake.
-Only 1 consumes data.
-9 wake up unnecessarily.
+**Scenario:** 10 processes are all polling the same device. One message arrives.
+**Question:** should all 10 wake up?
 
+**Answer:** usually **no**.
 
-2. If two applications open same char device:
-/dev/mychar
+```
+One message arrives
+      │
+      ▼  wake_up_interruptible() wakes ALL 10
+  app1 wakes ─┐
+  app2 wakes  │  but only ONE can consume the single message
+  ...         │  the other 9 wake, find nothing, sleep again  ← wasted work
+  app10 wakes─┘
+```
 
-do they get separate driver instances?
+Waking many processes when only one can make progress wastes CPU and causes
+lock contention. This is the **thundering herd problem**. Program 9 shows how
+`wake_up_interruptible_nr()` helps limit how many waiters are woken.
 
-Answer:
-No.
+---
 
-They share:
+## 2. Do Two Opens of the Same Device Get Separate Driver Instances?
 
-global variables
-global buffers
-wait queues
+**Scenario:** two applications both open `/dev/mychar`.
 
-inside the driver.
+**Answer:** **No** — by default they **share** the driver's:
 
-Only their:
-struct file *		is different.
+- global variables
+- global buffers
+- wait queues
 
-That is exactly why later we use:
+The only thing that differs per open is their own `struct file *`.
 
+```
+app1 open("/dev/mychar") ┐
+                          ├─▶ same driver, same globals, same wait queue
+app2 open("/dev/mychar") ┘     (only struct file * differs)
+```
+
+This is exactly why later programs introduce:
+
+```c
 file->private_data
 container_of()
+```
 
-to maintain per-device/per-open context.
+to maintain **per-open / per-device** context instead of shared globals
+(see Program 5).
+
+---
+
+## 3. Interview Questions & Answers
+
+**Q1. What is the thundering herd problem?**
+
+> When many processes wait on the same event and all are woken at once, but only
+> one can actually proceed. The rest wake, find no work, and sleep again — wasting
+> CPU cycles and causing contention.
+
+**Q2. If two processes open the same `/dev` node, do they get isolated state?**
+
+> No. They share the driver's global variables, buffers, and wait queues. Only
+> their `struct file` differs. Per-open isolation requires `file->private_data`
+> (and `container_of()` for per-device structures).
+
+**Q3. How can you reduce the thundering herd effect?**
+
+> Wake only as many waiters as can make progress — e.g.
+> `wake_up_interruptible_nr(&wq, 1)` to wake a single waiter — or use exclusive
+> waits (`wait_event_interruptible_exclusive`) so the kernel wakes one exclusive
+> waiter at a time.

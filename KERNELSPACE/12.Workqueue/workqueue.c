@@ -11,6 +11,10 @@ static void work_handler(struct work_struct *work)
 
     pr_info("Work started\n");
 
+	/*
+		loop should be finite and not block for long time.
+		Otherwise, it will block the kernel worker thread and other work items will not be executed
+	*/
     for (i = 0; i < 10; i++) {
         pr_info("Working %d\n", i);
         msleep(1000);
@@ -30,7 +34,7 @@ static int __init my_init(void)
 
 	/*
 		Queues work to kernel worker thread.
-		Returns immediately.	
+		Returns immediately. The work will be executed asynchronously.
 	*/
     schedule_work(&my_work);
 

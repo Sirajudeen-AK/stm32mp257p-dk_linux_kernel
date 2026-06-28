@@ -1,139 +1,142 @@
-Why do we need a kernel thread?
+# Program 11 \u2014 Kernel Thread (kthread)
 
-Suppose your driver must do some work periodically:
+## 1. Why Do We Need a Kernel Thread?
 
-Check hardware status every second
-Monitor CAN bus statistics
-Watch link status
-Collect debug information
-Heartbeat monitoring
+Sometimes a driver must do work **periodically or in the background**, for example:
 
-You don't want:
+- Check hardware status every second
+- Monitor CAN bus statistics
+- Watch link status
+- Collect debug information / heartbeat monitoring
 
-while (1) {
-    ...
+You must **not** put an infinite loop inside `module_init()`:
+
+```c
+static int __init my_init(void)
+{
+    while (1) { ... }   // \u274c init never returns \u2192 insmod hangs forever
+}
+```
+
+Instead, create a **kernel thread** that runs independently in the background.
+
+---
+
+## 2. Key APIs
+
+```c
+struct task_struct *t;
+
+t = kthread_run(thread_fn, NULL, "my_thread");   // create + start in one call
+
+// inside the thread function:
+static int thread_fn(void *data)
+{
+    while (!kthread_should_stop()) {
+        // ... do work ...
+        msleep(1000);          // sleep 1 second (allowed in a kthread)
+    }
+    return 0;
 }
 
-inside init() because init never returns and module loading hangs.
+// on rmmod:
+kthread_stop(t);   // signals kthread_should_stop() to return true, waits for exit
+```
 
-Instead create a kernel thread.
+---
 
+## 3. Architecture / Lifecycle
 
+```
+insmod
+  \u2502
+  \u25bc
+module_init()
+  \u2502
+  \u25bc
+kthread_run()  \u2500\u2500\u2500\u25b6  Kernel Thread created
+                          \u2502
+                          \u25bc
+                     thread_fn()
+                          \u2502
+                          \u25bc
+                while (!kthread_should_stop()) { do work; sleep; }
+                          \u2502
+rmmod  \u2500\u2500\u2500\u2500\u2500\u2500\u25b6 kthread_stop()  \u2500\u2500\u2500\u25b6 loop exits \u2192 thread terminates
+```
 
-Architecture
+---
 
-			insmod
-			|
-			v
-			module_init()
-			|
-			v
-			kthread_run()
-			|
-			v
-			Kernel Thread Created
-			|
-			v
-			thread_fn()
-			|
-			v
-			while (!kthread_should_stop())
-			{
-				do work
-				sleep
-			}
-			|
-			v
-			rmmod
-			|
-			v
-			kthread_stop()
-			|
-			v
-			Thread exits
+## 4. CPU Affinity (binding a thread to a specific CPU)
 
+By default a kthread can run on **any** CPU. To pin it to one core (useful for
+real-time or per-core work), bind it **before** waking it:
 
+```c
+kthread_bind(my_thread, target_cpu);   // run only on target_cpu
+```
 
-Interview Questions
-Q1. Difference between process and kernel thread?
+- Without binding \u2192 the scheduler may move the thread across all CPUs.
+- With binding \u2192 it executes only on the chosen CPU.
 
-	Process:
-		User space
-		Has user memory
+---
 
-	Kernel thread:
-		Kernel space only
-		No user address space
+## 5. Real Driver Usage (split work: ISR + kthread)
 
+```
+ISR (interrupt context \u2014 must be fast, cannot sleep)
+  \u2502
+  +--> receive frame
+  +--> wake the kernel thread
+            \u2502
+            \u25bc
+Kernel Thread (process context \u2014 can sleep)
+  \u2502
+  +--> heavy processing
+  +--> logging
+  +--> statistics
+```
 
-Q2. How to see kernel threads?
-ps -eLf
+This keeps slow/heavy work **out of interrupt context**, where sleeping is illegal.
 
-or
+---
 
-top
+## 6. Interview Questions & Answers
 
-Examples:
+**Q1. What is the difference between a process and a kernel thread?**
 
-kworker
-ksoftirqd
-migration
-rcu_preempt
+> A user process has its own user-space address space and runs user code. A kernel
+> thread runs **entirely in kernel space**, has **no user address space**, and is
+> scheduled like any task but only executes kernel code (e.g. `kworker`,
+> `ksoftirqd`).
 
-All are kernel threads.
+**Q2. How do you list kernel threads?**
 
+> Use `ps -eLf` or `top`. Kernel threads typically show in square brackets, e.g.
+> `[kworker/0:0]`, `[ksoftirqd/0]`, `[migration/0]`, `[rcu_preempt]`.
 
-Q3. Why msleep()?
+**Q3. Why is `msleep()` (or another sleep) needed inside the thread loop?**
 
-Without it:
+> Without sleeping, `while (!kthread_should_stop())` spins continuously and burns
+> 100% of a CPU. `msleep()` yields the CPU between iterations.
 
-while (!kthread_should_stop())
+**Q4. Can a kernel thread sleep?**
 
-consumes 100% CPU.
+> Yes. Because it runs in **process context**, it may call `msleep()`,
+> `wait_event()`, `schedule()`, `mutex_lock()`, etc.
 
+**Q5. Can an ISR sleep?**
 
-Q4. Can kernel thread sleep?
+> No. An ISR runs in **interrupt (atomic) context** where sleeping is forbidden.
+> That is why heavy/sleeping work is handed off to a kernel thread or workqueue.
 
-Yes.
+**Q6. How do you stop a kernel thread cleanly?**
 
-msleep()
-wait_event()
-schedule()
-mutex_lock()
+> Call `kthread_stop(t)` from the exit path. It makes `kthread_should_stop()`
+> return true so the loop exits, and it blocks until the thread has actually
+> returned \u2014 ensuring no use-after-free during `rmmod`.
 
-all can sleep.
+**Q7. How do you force a kthread to run on a specific CPU?**
 
-
-Q5. Can ISR sleep?
-
-No.
-Kernel thread can sleep.
-ISR cannot.
-
-
-Real Driver Usage
-Example CAN driver:
-
-	ISR
-	|
-	+--> receive frame
-	|
-	+--> wake thread
-
-	Kernel Thread
-	|
-	+--> heavy processing
-	|
-	+--> logging
-	|
-	+--> statistics
-
-This avoids doing heavy work inside interrupt context.
-
-
-Important:
-without binding to target CPU it thread executes all the CPU's 
-// Force the kthread to only execute on target_cpu-1
-        kthread_bind(my_thread2, target_cpu);
-
-but we bind to target then it executes only target CPU
+> Call `kthread_bind(thread, cpu)` before the thread starts running. Without
+> binding, the scheduler is free to run it on any CPU.

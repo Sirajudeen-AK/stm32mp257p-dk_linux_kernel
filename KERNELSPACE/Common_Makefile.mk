@@ -15,7 +15,7 @@ OBJS           := $(notdir $(SRCS:.c=.o))
 
 # 6. Setup module and file naming conventions
 MODULE_BASE    := $(basename $(notdir $(firstword $(SRCS))))
-MODULE_NAME    := kernel_$(MODULE_BASE)
+MODULE_NAME    := Ukernel_$(MODULE_BASE)
 FILE_NAME      := $(MODULE_NAME).ko
 
 
