@@ -1,4 +1,4 @@
-# Program 13 \u2014 Kernel Timer
+# Program 13 — Kernel Timer
 
 ## 1. Why Do We Need a Kernel Timer?
 
@@ -25,7 +25,7 @@ mod_timer(&my_timer, jiffies + msecs_to_jiffies(5000)); // fire after 5 s
 
 static void timer_callback(struct timer_list *t)
 {
-    // runs in softirq context \u2192 must be short, MUST NOT sleep
+    // runs in softirq context → must be short, MUST NOT sleep
 }
 
 del_timer_sync(&my_timer);   // cancel safely on cleanup
@@ -53,7 +53,7 @@ static void timer_callback(struct timer_list *t)
 | Good for timeout handling | Good for deferred processing |
 
 > If your callback needs `msleep()`, `mutex_lock()`, or I2C/SPI transfers, do
-> **not** use a timer \u2014 use delayed work instead (Program 12).
+> **not** use a timer — use delayed work instead (Program 12).
 
 ---
 
@@ -63,19 +63,19 @@ Keep the timer callback short, and hand off sleeping work to a workqueue:
 
 ```
 Timer expires (softirq, cannot sleep)
-      \u2502
-      \u25bc
+      │
+      ▼
 schedule_work()
-      \u2502
-      \u25bc
+      │
+      ▼
 Workqueue callback (process context, can sleep)
-      \u251c\u2500\u2500 msleep()
-      \u251c\u2500\u2500 mutex_lock()
-      \u251c\u2500\u2500 i2c_transfer()
-      \u2514\u2500\u2500 spi_transfer()
+      ├── msleep()
+      ├── mutex_lock()
+      ├── i2c_transfer()
+      └── spi_transfer()
 ```
 
-This timer \u2192 workqueue pattern is common in production drivers.
+This timer → workqueue pattern is common in production drivers.
 
 ---
 
@@ -96,7 +96,7 @@ A plain `bool` shared between CPUs is not safe without synchronization:
 **Q1. Why use `mod_timer()` instead of `add_timer()`?**
 
 > `mod_timer()` works whether the timer is currently inactive **or** already
-> active \u2014 it sets/updates the expiry in one call. It's recommended because you
+> active — it sets/updates the expiry in one call. It's recommended because you
 > don't have to first check and delete an active timer like you would with
 > `add_timer()`.
 

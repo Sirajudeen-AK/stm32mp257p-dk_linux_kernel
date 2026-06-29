@@ -1,4 +1,4 @@
-# Program 15 \u2014 Platform Driver + Device Tree
+# Program 15 — Platform Driver + Device Tree
 
 ## 1. Why Do We Need a Platform Driver?
 
@@ -31,7 +31,7 @@ Instead of hardcoding:
 ```
 Driver
    |
-Hardcoded GPIO          \u274c board-specific driver
+Hardcoded GPIO          ❌ board-specific driver
 ```
 
 we use:
@@ -43,7 +43,7 @@ Device Tree
 Platform Bus
         |
         v
-Platform Driver         \u2705 generic, board-independent driver
+Platform Driver         ✅ generic, board-independent driver
 ```
 
 The driver becomes **generic**; the hardware details live in the DT.
@@ -66,7 +66,7 @@ Matches the "compatible" string
 Calls probe()
 ```
 
-This is why `probe()` exists \u2014 it runs when a device is matched, not just when the
+This is why `probe()` exists — it runs when a device is matched, not just when the
 module loads.
 
 ---
@@ -100,23 +100,23 @@ When Linux finds a DT node whose `compatible` matches the driver's table, it cal
 
 ```
 insmod
-    \u2193
+    ↓
 platform_driver_register()   (driver registered)
-    \u2193
+    ↓
 kernel searches Device Tree
-    \u2193
+    ↓
 compatible matched
-    \u2193
+    ↓
 probe()                      (hardware initialized)
-    \u2193
+    ↓
 driver running
 
 rmmod
-    \u2193
+    ↓
 remove()                     (cleanup)
 ```
 
-If three identical devices exist in the DT, Linux calls `probe()` **three times** \u2014
+If three identical devices exist in the DT, Linux calls `probe()` **three times** —
 one generic driver serves many devices.
 
 ---
@@ -128,11 +128,11 @@ A platform driver flows like this:
 
 ```
 module_init()
-    \u2193
+    ↓
 platform_driver_register()
-    \u2193
-probe()              \u2190 called per matched device
-    \u2193
+    ↓
+probe()              ← called per matched device
+    ↓
 Hardware initialized
 ```
 
@@ -269,7 +269,7 @@ Driver: compatible = "siraj,my-button";
    module loads, but probe() is NEVER called
 ```
 
-A very common interview trap \u2014 the module loads successfully, yet nothing happens
+A very common interview trap — the module loads successfully, yet nothing happens
 because no device matched.
 
 ---
@@ -321,7 +321,7 @@ sudo rmmod gpio_platform_DTC
 **Q2. Who creates the `platform_device`?**
 
 > The Linux Device Tree parser, automatically during boot. The driver never
-> allocates it \u2014 it just receives the `pdev` pointer in `probe()`.
+> allocates it — it just receives the `pdev` pointer in `probe()`.
 
 **Q3. Who calls `probe()`?**
 
@@ -347,12 +347,12 @@ sudo rmmod gpio_platform_DTC
 **Q7. What happens if `compatible` doesn't match?**
 
 > The module loads successfully, but `probe()` is never called and the hardware is
-> never initialized \u2014 a common source of "my driver loads but does nothing" bugs.
+> never initialized — a common source of "my driver loads but does nothing" bugs.
 
 **Q8. How do you pass your private structure from `probe()` to `remove()`?**
 
 > Use `platform_set_drvdata(pdev, mydev)` in `probe()` and
-> `platform_get_drvdata(pdev)` in `remove()` \u2014 the platform equivalent of
+> `platform_get_drvdata(pdev)` in `remove()` — the platform equivalent of
 > `file->private_data`.
 
 **Q9. Why is the Device Tree preferred over hardcoding hardware details?**

@@ -1,4 +1,4 @@
-# Program 12 \u2014 Workqueues
+# Program 12 — Workqueues
 
 > This topic is **more important than kthreads for driver interviews**. Many
 > production drivers use workqueues instead of creating their own kernel thread.
@@ -13,7 +13,7 @@ An ISR runs in atomic context and **must finish fast** and **must not sleep**:
 irq_handler()
 {
     printk("IRQ");
-    msleep(100);   // \u274c illegal \u2014 sleeping in interrupt context crashes
+    msleep(100);   // ❌ illegal — sleeping in interrupt context crashes
 }
 ```
 
@@ -25,19 +25,19 @@ We need to move slow/sleeping work **out of the ISR**.
 
 ```
 ISR (fast, atomic)
-  \u2502
+  │
   +--> schedule_work(&my_work)   // queue the heavy work, then return immediately
-  \u2502
+  │
   ISR returns quickly
-        \u2502
-        \u25bc (later, in process context)
+        │
+        ▼ (later, in process context)
 Kernel worker thread runs work_handler()
-  \u2502
+  │
   +--> heavy processing
   +--> sleeping allowed (msleep, mutex_lock, i2c_transfer, logging)
 ```
 
-You don't create the worker thread \u2014 Linux already runs them as `kworker/0:0`,
+You don't create the worker thread — Linux already runs them as `kworker/0:0`,
 `kworker/1:0`, etc. Your work executes on one of them.
 
 ---
@@ -51,7 +51,7 @@ INIT_WORK(&my_work, work_handler);   // bind handler
 
 static void work_handler(struct work_struct *w)
 {
-    // runs in process context \u2192 may sleep
+    // runs in process context → may sleep
 }
 
 schedule_work(&my_work);             // queue onto the system workqueue
@@ -74,17 +74,17 @@ polling, CAN bus health monitoring.
 **Why not just `msleep(5000)` inside the handler?**
 
 ```c
-work_handler() { msleep(5000); }   // \u274c blocks a worker thread for 5 seconds
+work_handler() { msleep(5000); }   // ❌ blocks a worker thread for 5 seconds
 ```
 
-`schedule_delayed_work()` leaves the worker thread free until the time arrives \u2014
+`schedule_delayed_work()` leaves the worker thread free until the time arrives —
 far more efficient than blocking it with a sleep.
 
 ---
 
 ## 5. Custom Workqueue vs System Workqueue
 
-### Custom workqueue \u2014 you own it, you can destroy it
+### Custom workqueue — you own it, you can destroy it
 
 ```c
 struct workqueue_struct *my_wq = create_workqueue("my_custom_wq");
@@ -96,7 +96,7 @@ destroy_workqueue(my_wq);
 `destroy_workqueue()` stops accepting new work, **flushes** (runs) any pending
 work, then kills the dedicated worker threads and frees memory.
 
-### System workqueue \u2014 shared, you must NOT destroy it
+### System workqueue — shared, you must NOT destroy it
 
 `system_wq` (used by `schedule_work()`) is a global engine created by the kernel
 at boot and shared by hundreds of drivers (storage, USB, input, networking,
@@ -120,7 +120,7 @@ destroy_workqueue(my_wq);         // 3. tear down the queue
 ```c
 atomic_set(&stop_work_flag, 1);   // 1. tell your loop to stop
 cancel_work_sync(&my_work);       // 2. cancel ONLY your work item
-// \u274c never call destroy_workqueue on the system queue
+// ❌ never call destroy_workqueue on the system queue
 ```
 
 ---
@@ -137,13 +137,13 @@ cancel_work_sync(&my_work);       // 2. cancel ONLY your work item
 | Long-running tasks   | Short/medium tasks     |
 
 > A kthread is a dedicated thread you create and manage. A workqueue runs your
-> handler on shared kernel worker threads \u2014 simpler and lighter, ideal for short
+> handler on shared kernel worker threads — simpler and lighter, ideal for short
 > deferred work triggered from an ISR.
 
 **Q2. Difference between a kernel timer and delayed work?**
 
 > A **timer** callback runs in **softirq (atomic) context** and **cannot sleep**.
-> **Delayed work** runs in **process context** and **can sleep** \u2014 it may call
+> **Delayed work** runs in **process context** and **can sleep** — it may call
 > `mutex_lock()`, `msleep()`, `i2c_transfer()`, etc. Use a timer for lightweight
 > timeouts, delayed work when the deferred action needs to sleep.
 
@@ -169,4 +169,4 @@ cancel_work_sync(&my_work);       // 2. cancel ONLY your work item
 
 > It cancels a pending work item and, if it is already running, **blocks until the
 > handler finishes**. This guarantees no handler is still executing before you
-> free resources \u2014 preventing use-after-free during cleanup.
+> free resources — preventing use-after-free during cleanup.

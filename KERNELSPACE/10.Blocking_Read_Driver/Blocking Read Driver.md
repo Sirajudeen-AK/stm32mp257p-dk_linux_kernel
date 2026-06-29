@@ -1,4 +1,4 @@
-# Program 10 \u2014 Blocking Read Driver
+# Program 10 — Blocking Read Driver
 
 ## 1. Goal
 
@@ -12,20 +12,20 @@ of devices like a GPS, sensor, or serial port.
 
 ```c
 fd = open("/dev/gps", O_RDONLY);
-read(fd, buf, sizeof(buf));   // no data yet \u2192 process SLEEPS here
+read(fd, buf, sizeof(buf));   // no data yet → process SLEEPS here
 ```
 
 What happens behind the scenes:
 
 ```
 read() called, no data yet
-        \u2502
-        \u25bc  process sleeps (no CPU wasted)
-A GPS packet arrives \u2192 ISR runs:
+        │
+        ▼  process sleeps (no CPU wasted)
+A GPS packet arrives → ISR runs:
         gps_data_available = 1;
         wake_up_interruptible(&gps_wq);
-        \u2502
-        \u25bc
+        │
+        ▼
 sleeping read() wakes, copies data to user, returns
 ```
 
@@ -36,19 +36,19 @@ sleeping read() wakes, copies data to user, returns
 ```
 User space            Kernel space
 ----------            ------------
-read()        \u2500\u2500\u2500\u2500\u25b6   my_read()
-                          \u2502
-                          \u25bc
+read()        ────▶   my_read()
+                          │
+                          ▼
                        no data?
-                          \u2502
-                          \u25bc  SLEEP
+                          │
+                          ▼  SLEEP
                   wait_event_interruptible(&wq, data_ready)
-                          \u25b2
-                          \u2502  wake_up_interruptible(&wq)
-ISR / write()  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
-                          \u2502
-                          \u25bc
-                  read() continues \u2192 copy_to_user() \u2192 return
+                          ▲
+                          │  wake_up_interruptible(&wq)
+ISR / write()  ─────────┘
+                          │
+                          ▼
+                  read() continues → copy_to_user() → return
 ```
 
 ---
@@ -87,7 +87,7 @@ program must watch many file descriptors.
 
 **Q4. Difference between `poll()` and blocking `read()`?**
 
-> Blocking `read()` waits on a single fd with one syscall \u2014 simple but limited.
+> Blocking `read()` waits on a single fd with one syscall — simple but limited.
 > `poll`/`epoll` let one process wait on many fds and react to whichever becomes
 > ready, which is how event-driven applications (servers, GUIs) work.
 

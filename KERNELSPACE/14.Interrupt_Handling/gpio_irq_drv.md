@@ -1,4 +1,4 @@
-# Program 14 \u2014 Interrupt Handling (GPIO IRQ)
+# Program 14 — Interrupt Handling (GPIO IRQ)
 
 ## 1. Why Do We Need Interrupts?
 
@@ -20,17 +20,17 @@ With an interrupt, the hardware tells the CPU only when it needs attention:
 CPU doing other work
 
         UART receives byte
-               \u2502
-               \u25bc
+               │
+               ▼
         Interrupt generated
-               \u2502
-               \u25bc
+               │
+               ▼
         CPU jumps to ISR
-               \u2502
-               \u25bc
+               │
+               ▼
         Read hardware
-               \u2502
-               \u25bc
+               │
+               ▼
         Return
 ```
 
@@ -42,16 +42,16 @@ The CPU is free until the hardware actually needs servicing.
 
 ```
 Hardware
-   \u2502
+   │
 IRQ Line
-   \u2502
+   │
 GIC (Generic Interrupt Controller)
-   \u2502
+   │
 Linux IRQ Subsystem
-   \u2502
-request_irq()       \u2190 your driver registers a handler here
-   \u2502
-  ISR               \u2190 your handler runs when the IRQ fires
+   │
+request_irq()       ← your driver registers a handler here
+   │
+  ISR               ← your handler runs when the IRQ fires
 ```
 
 ### Registering the handler
@@ -62,7 +62,7 @@ request_irq(irq, my_isr, IRQF_TRIGGER_RISING, "my_button", dev);
 
 static irqreturn_t my_isr(int irq, void *dev_id)
 {
-    // keep it SHORT \u2014 no sleeping
+    // keep it SHORT — no sleeping
     return IRQ_HANDLED;   // or IRQ_NONE if this wasn't my device
 }
 
@@ -95,7 +95,7 @@ free_irq(irq, dev);   // on cleanup
 | Higher latency        | Lower latency         |
 
 > Polling makes the CPU repeatedly check the device; interrupts let the hardware
-> signal the CPU only when needed \u2014 more efficient and lower latency.
+> signal the CPU only when needed — more efficient and lower latency.
 
 **Q4. Why would an ISR return `IRQ_NONE`?**
 
@@ -105,7 +105,7 @@ free_irq(irq, dev);   // on cleanup
 
 **Q5. What is the top-half / bottom-half split?**
 
-> The "top half" is the ISR \u2014 fast, atomic, acknowledges the hardware. The "bottom
+> The "top half" is the ISR — fast, atomic, acknowledges the hardware. The "bottom
 > half" (softirq, tasklet, or workqueue) does the slower processing later. This
 > keeps interrupts disabled for the minimum time.
 

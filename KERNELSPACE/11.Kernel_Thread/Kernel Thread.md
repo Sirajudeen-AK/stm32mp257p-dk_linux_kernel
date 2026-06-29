@@ -1,4 +1,4 @@
-# Program 11 \u2014 Kernel Thread (kthread)
+# Program 11 — Kernel Thread (kthread)
 
 ## 1. Why Do We Need a Kernel Thread?
 
@@ -14,7 +14,7 @@ You must **not** put an infinite loop inside `module_init()`:
 ```c
 static int __init my_init(void)
 {
-    while (1) { ... }   // \u274c init never returns \u2192 insmod hangs forever
+    while (1) { ... }   // ❌ init never returns → insmod hangs forever
 }
 ```
 
@@ -49,20 +49,20 @@ kthread_stop(t);   // signals kthread_should_stop() to return true, waits for ex
 
 ```
 insmod
-  \u2502
-  \u25bc
+  │
+  ▼
 module_init()
-  \u2502
-  \u25bc
-kthread_run()  \u2500\u2500\u2500\u25b6  Kernel Thread created
-                          \u2502
-                          \u25bc
+  │
+  ▼
+kthread_run()  ───▶  Kernel Thread created
+                          │
+                          ▼
                      thread_fn()
-                          \u2502
-                          \u25bc
+                          │
+                          ▼
                 while (!kthread_should_stop()) { do work; sleep; }
-                          \u2502
-rmmod  \u2500\u2500\u2500\u2500\u2500\u2500\u25b6 kthread_stop()  \u2500\u2500\u2500\u25b6 loop exits \u2192 thread terminates
+                          │
+rmmod  ──────▶ kthread_stop()  ───▶ loop exits → thread terminates
 ```
 
 ---
@@ -76,22 +76,22 @@ real-time or per-core work), bind it **before** waking it:
 kthread_bind(my_thread, target_cpu);   // run only on target_cpu
 ```
 
-- Without binding \u2192 the scheduler may move the thread across all CPUs.
-- With binding \u2192 it executes only on the chosen CPU.
+- Without binding → the scheduler may move the thread across all CPUs.
+- With binding → it executes only on the chosen CPU.
 
 ---
 
 ## 5. Real Driver Usage (split work: ISR + kthread)
 
 ```
-ISR (interrupt context \u2014 must be fast, cannot sleep)
-  \u2502
+ISR (interrupt context — must be fast, cannot sleep)
+  │
   +--> receive frame
   +--> wake the kernel thread
-            \u2502
-            \u25bc
-Kernel Thread (process context \u2014 can sleep)
-  \u2502
+            │
+            ▼
+Kernel Thread (process context — can sleep)
+  │
   +--> heavy processing
   +--> logging
   +--> statistics
@@ -134,7 +134,7 @@ This keeps slow/heavy work **out of interrupt context**, where sleeping is illeg
 
 > Call `kthread_stop(t)` from the exit path. It makes `kthread_should_stop()`
 > return true so the loop exits, and it blocks until the thread has actually
-> returned \u2014 ensuring no use-after-free during `rmmod`.
+> returned — ensuring no use-after-free during `rmmod`.
 
 **Q7. How do you force a kthread to run on a specific CPU?**
 
