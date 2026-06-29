@@ -7,6 +7,9 @@ static struct timer_list my_timer;
 
 static void timer_callback(struct timer_list *t)
 {
+	/*
+		jiffies is a global variable that represents the number of timer ticks that have occurred since the system booted.
+	*/
     pr_info("Timer expired! jiffies=%lu\n", jiffies);
 }
 
