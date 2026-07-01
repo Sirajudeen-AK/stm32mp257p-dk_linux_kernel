@@ -198,10 +198,13 @@ sudo rmmod streaming_dma
 > DMA-reachable. You must verify the returned `dma_addr_t` before using it,
 > otherwise the device may DMA to an invalid address.
 
-**Q4. Does `kmalloc()` return a DMA address?**
+**Q4. Why can't you hand a `kmalloc()` pointer directly to hardware?**
 
-> No. It returns a CPU virtual address. Only `dma_map_single()` produces a DMA
-> address the hardware can use.
+> `kmalloc()` returns only a **CPU virtual address** — not a DMA address — and the
+> memory may sit at a bus offset or behind an IOMMU the device can't reach. You
+> *can* use `kmalloc()` memory for streaming DMA, but you must first pass it
+> through `dma_map_single()`, which returns the `dma_addr_t` the hardware uses and
+> performs the required cache maintenance.
 
 **Q5. What is the CPU cache problem in streaming DMA?**
 
@@ -220,3 +223,58 @@ sudo rmmod streaming_dma
 > Between `dma_map_single()` and `dma_unmap_single()` the device owns the buffer.
 > CPU access can race with the DMA and reintroduce cache incoherency. Ownership
 > returns to the CPU only after unmap (or `dma_sync_single_for_cpu()`).
+
+**Q8. What is the core difference between coherent and streaming DMA?**
+
+> **Coherent (consistent) DMA** — `dma_alloc_coherent()` — is a long-lived buffer
+> the kernel keeps automatically consistent between CPU and device (no manual cache
+> ops); ideal for control structures both sides poke often. **Streaming DMA** —
+> `dma_map_single()`/`dma_unmap_single()` — maps ordinary memory for a single
+> transfer with explicit cache maintenance and a direction; faster and lower
+> overhead for large, one-shot payloads. (See the table in Section 7.)
+
+**Q9. Why not use `virt_to_phys()` to get a DMA address?**
+
+> Because a physical address is not always a valid device address: bus offsets,
+> address translation, or an IOMMU can make the device's view differ from the CPU's
+> physical address. `virt_to_phys()` also does **no cache maintenance** and doesn't
+> work for `vmalloc`/highmem memory. The DMA API (`dma_map_*`) returns the correct
+> device-visible address and handles caches — always use it.
+
+**Q10. What is a DMA mask?**
+
+> It tells the kernel how many address bits the device can drive, set with
+> `dma_set_mask_and_coherent(dev, DMA_BIT_MASK(n))`. A 32-bit device
+> (`DMA_BIT_MASK(32)`) can only reach the low 4 GB, so the kernel must allocate (or
+> bounce) buffers within that range. Skipping it can hand the device addresses it
+> physically cannot access.
+
+**Q11. Why does `dma_alloc_coherent()` return two addresses, and how do CPU virtual and DMA addresses differ?**
+
+> It returns a **CPU virtual address** (used by software: `memcpy`, `copy_to_user`)
+> and a **`dma_addr_t` bus address** (handed to the DMA engine). They name the same
+> physical buffer from two viewpoints: the CPU reaches it through the MMU using
+> virtual addresses; the device reaches it through the bus/IOMMU using the DMA
+> address. A device cannot use the CPU's virtual address, so both are provided.
+
+**Q12. What is an IOMMU?**
+
+> An **I/O Memory Management Unit** — the MMU for devices. It translates the
+> DMA/bus addresses a device issues into physical RAM addresses and enforces access
+> permissions. It lets a device see one contiguous DMA address even when RAM is
+> fragmented, and isolates devices for security. Its presence is another reason a
+> raw physical address is not a valid DMA address.
+
+**Q13. What is Scatter-Gather DMA?**
+
+> A way to DMA a buffer made of many **non-contiguous** memory chunks in one
+> operation. You build a scatterlist and call `dma_map_sg()`; the device (or IOMMU)
+> walks the list and transfers each segment, so the kernel needs no single large
+> physically-contiguous buffer. Network and storage drivers rely on it heavily.
+
+**Q14. Why is DMA faster than `copy_to_user()` / a CPU copy?**
+
+> `copy_to_user()` makes the **CPU** move every byte, burning CPU cycles and
+> polluting caches. DMA offloads the transfer to a dedicated engine — the CPU just
+> starts it and does other work while data moves in the background — giving higher
+> throughput and far lower CPU load, especially for large or continuous streams.
