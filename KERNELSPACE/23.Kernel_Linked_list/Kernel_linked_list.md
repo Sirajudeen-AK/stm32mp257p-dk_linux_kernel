@@ -123,59 +123,70 @@ Never reverse the order.
 
 ---
 
-# Interview Questions
+# Interview Questions & Answers
 
-1. Why intrusive lists instead of external nodes?
-- Better cache locality.
-- No extra allocation.
-- One object can belong to multiple lists by embedding multiple `list_head`s.
+**Q1. Why intrusive lists instead of external nodes?**
 
-2. Difference between `list_add()` and `list_add_tail()`?
-- Head insertion (stack) vs tail insertion (queue).
+> Better cache locality, no extra allocation for the list node, and one object can
+> belong to multiple lists by embedding multiple `list_head`s.
 
-3. Is `list_del()` enough?
-- No. It only unlinks.
+**Q2. Difference between `list_add()` and `list_add_tail()`?**
 
-4. Why use `_safe()` iteration?
-- Allows deletion during traversal.
+> Head insertion (stack/LIFO) vs tail insertion (queue/FIFO).
 
-5. What happens if `kfree()` is called before `list_del()`?
-- Corrupt list and dangling pointers.
+**Q3. Is `list_del()` enough?**
 
-6. Time complexity?
-- Insert/Delete: O(1)
-- Search: O(n)
+> No. It only unlinks the node; you must `kfree()` it if it was dynamically allocated.
 
-7. Which macro retrieves parent object?
-- `container_of()`.
+**Q4. Why use `_safe()` iteration?**
 
-8. Why mutex?
-- Protect concurrent access.
+> It saves the next pointer before the body runs, so you can delete the current
+> node during traversal without a use-after-free.
 
-9. Can one object belong to multiple lists?
-- Yes, embed multiple `struct list_head` members.
+**Q5. What happens if `kfree()` is called before `list_del()`?**
 
-10. Difference between intrusive and non-intrusive linked lists?
-- Intrusive embeds list metadata in the object.
+> The list is corrupted and neighboring nodes hold dangling pointers. Always
+> `list_del()` first, then `kfree()`.
 
-11. Why doubly linked instead of singly linked?
-- O(1) deletion with only node pointer.
+**Q6. Time complexity?**
 
-12. Why is list head circular?
-- Eliminates NULL checks and simplifies edge cases.
+> Insert and delete are O(1); search (as implemented) is O(n).
 
-13. Common bugs?
-- Double delete
-- Forgetting INIT_LIST_HEAD()
-- Free before unlink
-- Modifying while iterating without `_safe()`
+**Q7. Which macro retrieves the parent object?**
 
-14. Debugging tips
-- Enable CONFIG_DEBUG_LIST.
-- Check for use-after-free with KASAN.
+> `container_of()`, which `list_for_each_entry()` uses internally.
 
-15. Which kernel subsystems heavily depend on list_head?
-- Memory management, scheduler, drivers, networking, VFS.
+**Q8. Why mutex?**
 
----
-This guide is interview-focused and suitable for Linux kernel driver roles.
+> To protect the list from concurrent modification when multiple processes call
+> read(), write(), or ioctl() at the same time.
+
+**Q9. Can one object belong to multiple lists?**
+
+> Yes, by embedding multiple `struct list_head` members in the object.
+
+**Q10. Difference between intrusive and non-intrusive linked lists?**
+
+> An intrusive list embeds the list metadata inside the object; a non-intrusive
+> list allocates separate nodes that point to the data.
+
+**Q11. Why doubly linked instead of singly linked?**
+
+> O(1) deletion given only the node pointer, without walking from the head.
+
+**Q12. Why is the list head circular?**
+
+> It eliminates NULL checks and simplifies edge cases at the ends of the list.
+
+**Q13. Common bugs?**
+
+> Double delete, forgetting INIT_LIST_HEAD(), freeing before unlinking, and
+> modifying the list while iterating without `_safe()`.
+
+**Q14. Debugging tips?**
+
+> Enable CONFIG_DEBUG_LIST and use KASAN to catch use-after-free.
+
+**Q15. Which kernel subsystems heavily depend on list_head?**
+
+> Memory management, scheduler, drivers, networking, and VFS.

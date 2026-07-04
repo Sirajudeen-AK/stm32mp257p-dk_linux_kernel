@@ -64,7 +64,7 @@ clean_kernel() {
 build_userspace() {
     local folder=$1
     local user_src=""
-    
+
     for file in "$folder"/*.c; do
         [ -e "$file" ] || continue
         if grep -qE "int[[:space:]]+main" "$file"; then
@@ -73,34 +73,56 @@ build_userspace() {
         fi
     done
 
-    if [ -n "$user_src" ]; then
-        local exe_name=$(basename "$user_src" .c)
-        echo ">>> [Userspace] Found $user_src -> Compiling to $folder/$exe_name"
-        aarch64-linux-gnu-gcc "$user_src" -o "$folder/$exe_name"
-        
+    if [ -z "$user_src" ]; then
+        echo ">>> [Userspace] No file with main() found in $folder"
+        return
+    fi
+
+    local exe_name=$(basename "$user_src" .c)
+
+    if [ "$folder" = "25c.Netlink_Socket_MultiCast" ]; then
+        echo ">>> [Userspace] Found $user_src -> Compiling with multicast libs to $folder/$exe_name"
+        gcc "$user_src" -o "$folder/$exe_name" $(pkg-config --cflags --libs libnl-3.0 libnl-genl-3.0)
+
         if [ $? -eq 0 ]; then
             echo ">>> [Userspace] Build successful!"
-            
-            # Copy to the output directory ---
+
             echo ">>> [Userspace] Copying executable to $OUTPUT_DIR"
             mkdir -p "$OUTPUT_DIR"
             cp "$folder/$exe_name" "$OUTPUT_DIR/"
-            
-            # Also copy to the Windows directory ---
+
             echo ">>> [Userspace] Copying executable to $WINDIR"
             cp "$folder/$exe_name" "$WINDIR/"
-            
         else
             echo "!!! [Userspace] Compilation failed for $user_src"
         fi
+        return
+    fi
+
+    echo ">>> [Userspace] Found $user_src -> Compiling to $folder/$exe_name"
+    aarch64-linux-gnu-gcc "$user_src" -o "$folder/$exe_name"
+
+    if [ $? -eq 0 ]; then
+        echo ">>> [Userspace] Build successful!"
+
+        # Copy to the output directory ---
+        echo ">>> [Userspace] Copying executable to $OUTPUT_DIR"
+        mkdir -p "$OUTPUT_DIR"
+        cp "$folder/$exe_name" "$OUTPUT_DIR/"
+
+        # Also copy to the Windows directory ---
+        echo ">>> [Userspace] Copying executable to $WINDIR"
+        cp "$folder/$exe_name" "$WINDIR/"
+
     else
-        echo ">>> [Userspace] No file with main() found in $folder"
+        echo "!!! [Userspace] Compilation failed for $user_src"
     fi
 }
 
 # Helper function to find and clean Userspace Binary
 clean_userspace() {
     local folder=$1
+
     for file in "$folder"/*.c; do
         [ -e "$file" ] || continue
         if grep -qE "int[[:space:]]+main" "$file"; then

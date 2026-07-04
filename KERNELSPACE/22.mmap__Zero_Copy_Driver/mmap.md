@@ -253,62 +253,138 @@ Prevent unsafe behavior such as core dump leakage.
 
 ------------------------------------------------------------------------
 
-# 14. Interview Questions
+# 14. Interview Questions & Answers
 
 ## Basic
 
-1.  Why use mmap()?
-2.  Difference between read() and mmap()?
-3.  What is zero-copy?
-4.  What does remap_pfn_range() do?
-5.  Why validate mapping size?
-6.  Why validate vm_pgoff?
-7.  Does mmap() eliminate copy_to_user()?
+**Q1. Why use mmap()?**
+
+> To map kernel/device memory directly into a process's address space so userspace
+> can access it without per-transfer copies, enabling zero-copy and high throughput.
+
+**Q2. Difference between read() and mmap()?**
+
+> read() copies data kernel→user on every call. mmap() maps the same physical
+> memory once; afterwards userspace accesses it directly with no syscall or copy.
+
+**Q3. What is zero-copy?**
+
+> Sharing the same physical pages between kernel and userspace so data is never
+> duplicated through copy_to_user()/copy_from_user().
+
+**Q4. What does remap_pfn_range() do?**
+
+> It maps a range of physical page frame numbers into a user VMA, building the
+> page-table entries that back the mapping.
+
+**Q5. Why validate mapping size?**
+
+> To ensure the process cannot map more than the driver's buffer, preventing
+> out-of-bounds access to unrelated physical memory.
+
+**Q6. Why validate vm_pgoff?**
+
+> The offset selects which part of the buffer is mapped; an unchecked offset lets
+> userspace map arbitrary physical memory, a serious security hole.
+
+**Q7. Does mmap() eliminate copy_to_user()?**
+
+> Yes for the data path — once mapped, userspace reads/writes the shared pages
+> directly, so copy_to_user() is no longer needed for that buffer.
 
 ## Intermediate
 
-8.  Difference between virtual and physical address?
-9.  What is PFN?
-10. Why page aligned mappings?
-11. Why isn't virt_to_phys() recommended?
-12. What is vm_area_struct?
-13. Can vmalloc memory be mapped directly?
-14. Difference between coherent and streaming DMA?
+**Q8. Difference between virtual and physical address?**
+
+> A virtual address is what code uses and is translated by the MMU/page tables to
+> a physical address, the actual location in RAM/device memory.
+
+**Q9. What is PFN?**
+
+> Page Frame Number — the physical address shifted right by PAGE_SHIFT, i.e. the
+> index of a physical page. remap_pfn_range() works in PFNs.
+
+**Q10. Why page aligned mappings?**
+
+> The MMU maps memory at page granularity, so both the base address and size of a
+> mapping must be page aligned.
+
+**Q11. Why isn't virt_to_phys() recommended?**
+
+> It only works for the linear kernel logical mapping (kmalloc), not for vmalloc,
+> highmem, or device memory, so it is unsafe as a general translation.
+
+**Q12. What is vm_area_struct?**
+
+> The kernel structure describing one contiguous virtual memory region of a
+> process, including its range, permissions, and vm_operations.
+
+**Q13. Can vmalloc memory be mapped directly?**
+
+> Not with remap_pfn_range(), because vmalloc pages are not physically contiguous.
+> Use vm_insert_page()/remap_vmalloc_range() page by page instead.
+
+**Q14. Difference between coherent and streaming DMA?**
+
+> Coherent DMA memory is always cache-consistent between CPU and device; streaming
+> DMA maps existing buffers per transfer and requires explicit cache maintenance.
 
 ## Advanced
 
-15. Explain page table changes during mmap().
-16. Explain TLB involvement.
-17. What happens after munmap()?
-18. When should dma_mmap_coherent() be preferred?
-19. How are BAR regions mapped?
-20. Why does GPU rely heavily on mmap()?
+**Q15. Explain page table changes during mmap().**
+
+> The kernel creates a new VMA and populates PTEs mapping the user virtual range
+> to the target physical PFNs, so subsequent accesses translate without faults.
+
+**Q16. Explain TLB involvement.**
+
+> The MMU caches recent translations in the TLB. New mappings may require TLB
+> fills; changing or removing mappings requires TLB invalidation/flush.
+
+**Q17. What happens after munmap()?**
+
+> The VMA is removed, its PTEs are torn down, and the TLB is flushed; further
+> access to that range faults (SIGSEGV). Underlying physical memory is freed by
+> the owner, not by munmap of a device mapping.
+
+**Q18. When should dma_mmap_coherent() be preferred?**
+
+> When mapping DMA-coherent memory to userspace — it handles the correct PFNs,
+> caching attributes, and offset semantics for coherent buffers automatically.
+
+**Q19. How are BAR regions mapped?**
+
+> PCI BAR physical addresses are mapped to userspace with io_remap_pfn_range()
+> using non-cached/write-combining attributes appropriate for MMIO.
+
+**Q20. Why does GPU rely heavily on mmap()?**
+
+> GPUs move large framebuffers/textures; mapping that memory into userspace avoids
+> huge per-frame copies and gives the application direct, high-bandwidth access.
 
 ------------------------------------------------------------------------
 
 # 15. Bottleneck Questions
 
-**Q:** Why doesn't every driver expose mmap()?
+**Q. Why doesn't every driver expose mmap()?**
 
-A: Only drivers benefiting from shared memory or high-throughput
-transfers need it.
+> Only drivers benefiting from shared memory or high-throughput transfers need it.
 
-**Q:** Does mmap() improve latency?
+**Q. Does mmap() improve latency?**
 
-A: It mainly removes copy overhead and CPU utilization; latency may also
-improve.
+> It mainly removes copy overhead and CPU utilization; latency may also improve.
 
-**Q:** Can multiple processes map the same buffer?
+**Q. Can multiple processes map the same buffer?**
 
-A: Yes, depending on driver implementation and synchronization.
+> Yes, depending on driver implementation and synchronization.
 
-**Q:** Is synchronization still required?
+**Q. Is synchronization still required?**
 
-A: Yes. mmap() shares memory, not locking.
+> Yes. mmap() shares memory, not locking.
 
-**Q:** Does mmap() allocate memory?
+**Q. Does mmap() allocate memory?**
 
-A: No. It maps existing memory into a process.
+> No. It maps existing memory into a process.
 
 ------------------------------------------------------------------------
 

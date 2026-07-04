@@ -166,82 +166,82 @@ dma_m2m: module removed
 
 **Q1. What does module_init do in this driver and when does the DMA transfer run?**
 
-module_init registers dma_m2m_init as the function that runs when the module is
-loaded with insmod. The entire DMA transfer — channel request, buffer allocation,
-mapping, descriptor programming, hardware kick, wait, verify, and free — runs
-inside that single init function. The transfer completes before insmod returns to
-the shell.
+> module_init registers dma_m2m_init as the function that runs when the module is
+> loaded with insmod. The entire DMA transfer — channel request, buffer allocation,
+> mapping, descriptor programming, hardware kick, wait, verify, and free — runs
+> inside that single init function. The transfer completes before insmod returns to
+> the shell.
 
 **Q2. Why can we use kmalloc for DMA buffers here instead of dma_alloc_coherent?**
 
-kmalloc returns physically contiguous, DMA-capable memory on most ARM platforms.
-Because we use streaming DMA with dma_map_single, the kernel performs the
-necessary cache maintenance (flush on DMA_TO_DEVICE, invalidate on
-DMA_FROM_DEVICE) at map and unmap time. dma_alloc_coherent would work too but
-allocates from a special non-cached pool which is wasteful for a short one-shot
-transfer.
+> kmalloc returns physically contiguous, DMA-capable memory on most ARM platforms.
+> Because we use streaming DMA with dma_map_single, the kernel performs the
+> necessary cache maintenance (flush on DMA_TO_DEVICE, invalidate on
+> DMA_FROM_DEVICE) at map and unmap time. dma_alloc_coherent would work too but
+> allocates from a special non-cached pool which is wasteful for a short one-shot
+> transfer.
 
 **Q3. What is the purpose of DMA_TO_DEVICE and DMA_FROM_DEVICE?**
 
-They tell the kernel which direction data flows so it performs the right cache
-operation. DMA_TO_DEVICE: the CPU has written data, so the kernel flushes the
-cache line to RAM so the DMA controller reads the correct value. DMA_FROM_DEVICE:
-the DMA controller will write data, so the kernel invalidates the cache line so
-the CPU does not read a stale cached value after unmap.
+> They tell the kernel which direction data flows so it performs the right cache
+> operation. DMA_TO_DEVICE: the CPU has written data, so the kernel flushes the
+> cache line to RAM so the DMA controller reads the correct value. DMA_FROM_DEVICE:
+> the DMA controller will write data, so the kernel invalidates the cache line so
+> the CPU does not read a stale cached value after unmap.
 
 **Q4. What is a dmaengine descriptor and why is DMA_CTRL_ACK needed?**
 
-A descriptor (struct dma_async_tx_descriptor) packages all parameters of a
-transfer: source address, destination address, length, flags, and callback.
-DMA_CTRL_ACK tells the DMA engine it is safe to free or reuse the descriptor
-memory once the callback has been called. Without it some drivers hold the
-descriptor indefinitely, causing resource leaks.
+> A descriptor (struct dma_async_tx_descriptor) packages all parameters of a
+> transfer: source address, destination address, length, flags, and callback.
+> DMA_CTRL_ACK tells the DMA engine it is safe to free or reuse the descriptor
+> memory once the callback has been called. Without it some drivers hold the
+> descriptor indefinitely, causing resource leaks.
 
 **Q5. What is dma_async_issue_pending and why is it a separate call from submit?**
 
-dmaengine_submit only adds the descriptor to the channel's software queue.
-dma_async_issue_pending pushes all queued descriptors to the actual hardware
-channel registers, starting the transfer. This separation allows batching:
-multiple descriptors can be submitted before any hardware work starts, giving
-the DMA controller a chain to execute without software intervention between steps.
+> dmaengine_submit only adds the descriptor to the channel's software queue.
+> dma_async_issue_pending pushes all queued descriptors to the actual hardware
+> channel registers, starting the transfer. This separation allows batching:
+> multiple descriptors can be submitted before any hardware work starts, giving
+> the DMA controller a chain to execute without software intervention between steps.
 
 **Q6. What happens between dma_async_issue_pending and the callback firing?**
 
-The DMA controller reads source memory at src_dma, writes it to destination
-memory at dst_dma, entirely without CPU involvement. When the last byte is
-copied, the controller signals a completion interrupt. The interrupt handler in
-the stm32-dma3 driver runs, finds the completed descriptor, and calls its
-callback (dma_mem2mem_callback), which calls complete() to wake the waiting
-thread.
+> The DMA controller reads source memory at src_dma, writes it to destination
+> memory at dst_dma, entirely without CPU involvement. When the last byte is
+> copied, the controller signals a completion interrupt. The interrupt handler in
+> the stm32-dma3 driver runs, finds the completed descriptor, and calls its
+> callback (dma_mem2mem_callback), which calls complete() to wake the waiting
+> thread.
 
 **Q7. What would happen if we read dst_buf between dma_async_issue_pending and dma_unmap_single?**
 
-It is undefined behaviour. The buffer is owned by the device during the
-transfer. The CPU cache may hold a stale copy. Even if the transfer is done,
-without calling dma_unmap_single (which invalidates the cache for
-DMA_FROM_DEVICE), the CPU may read the old cached value rather than the
-freshly DMA'd data. This is a common source of subtle data-corruption bugs.
+> It is undefined behaviour. The buffer is owned by the device during the
+> transfer. The CPU cache may hold a stale copy. Even if the transfer is done,
+> without calling dma_unmap_single (which invalidates the cache for
+> DMA_FROM_DEVICE), the CPU may read the old cached value rather than the
+> freshly DMA'd data. This is a common source of subtle data-corruption bugs.
 
 **Q8. Why is memcmp used after the transfer instead of strcmp?**
 
-memcmp compares a fixed number of bytes and detects NUL bytes embedded in the
-buffer. strcmp would stop at the first NUL, missing any corruption after it.
-Since DMA_BUF_SIZE is the true extent of the transfer, memcmp over the full
-buffer size gives a complete correctness check.
+> memcmp compares a fixed number of bytes and detects NUL bytes embedded in the
+> buffer. strcmp would stop at the first NUL, missing any corruption after it.
+> Since DMA_BUF_SIZE is the true extent of the transfer, memcmp over the full
+> buffer size gives a complete correctness check.
 
 **Q9. What is dma_cookie_t and what does dma_async_is_tx_complete tell us?**
 
-dma_cookie_t is a monotonically increasing integer that the DMA engine assigns
-to each submitted descriptor. dma_async_is_tx_complete(chan, cookie, NULL, NULL)
-queries whether the transfer identified by that cookie has reached DMA_COMPLETE
-status. It is a post-completion sanity check on top of the callback because a
-buggy driver could call the callback before truly finishing the transfer.
+> dma_cookie_t is a monotonically increasing integer that the DMA engine assigns
+> to each submitted descriptor. dma_async_is_tx_complete(chan, cookie, NULL, NULL)
+> queries whether the transfer identified by that cookie has reached DMA_COMPLETE
+> status. It is a post-completion sanity check on top of the callback because a
+> buggy driver could call the callback before truly finishing the transfer.
 
 **Q10. What is the difference between dmaengine_terminate_async and dmaengine_terminate_sync?**
 
-dmaengine_terminate_async stops the channel and returns immediately, without
-waiting for any in-progress callback to finish. dmaengine_terminate_sync does the
-same but also waits until any currently running callback has returned before the
-function returns. In our timeout path we must use terminate_sync because we are
-about to free buffers that the callback might still be accessing. Using the async
-version would be a use-after-free race condition.
+> dmaengine_terminate_async stops the channel and returns immediately, without
+> waiting for any in-progress callback to finish. dmaengine_terminate_sync does the
+> same but also waits until any currently running callback has returned before the
+> function returns. In our timeout path we must use terminate_sync because we are
+> about to free buffers that the callback might still be accessing. Using the async
+> version would be a use-after-free race condition.

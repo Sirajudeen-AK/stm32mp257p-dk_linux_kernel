@@ -141,77 +141,77 @@ dma_mem2mem: DMA copied 10 bytes (src -> dst)
 
 **Q1. What is streaming DMA and how is it different from coherent DMA?**
 
-Streaming DMA (dma_map_single) maps a CPU buffer for a single transfer. The
-CPU owns the buffer normally; during the transfer ownership moves to the device.
-Coherent DMA (dma_alloc_coherent) allocates a buffer that is always coherent
-between CPU and device, removing the need to flush/invalidate caches. Streaming
-is cheaper and preferred for one-shot transfers; coherent is simpler but wastes
-memory and may slow the CPU cache.
+> Streaming DMA (dma_map_single) maps a CPU buffer for a single transfer. The
+> CPU owns the buffer normally; during the transfer ownership moves to the device.
+> Coherent DMA (dma_alloc_coherent) allocates a buffer that is always coherent
+> between CPU and device, removing the need to flush/invalidate caches. Streaming
+> is cheaper and preferred for one-shot transfers; coherent is simpler but wastes
+> memory and may slow the CPU cache.
 
-**Q2. Why do we call dma_map_single before dma_map_single for the destination with DMA_FROM_DEVICE?**
+**Q2. Why do we call dma_map_single for the destination with DMA_FROM_DEVICE?**
 
-The direction tells the kernel which cache maintenance to perform.
-DMA_TO_DEVICE flushes the cache so the device sees fresh CPU-written data.
-DMA_FROM_DEVICE invalidates the cache so the CPU sees fresh device-written data
-after unmap. Using the wrong direction can cause data corruption silently.
+> The direction tells the kernel which cache maintenance to perform.
+> DMA_TO_DEVICE flushes the cache so the device sees fresh CPU-written data.
+> DMA_FROM_DEVICE invalidates the cache so the CPU sees fresh device-written data
+> after unmap. Using the wrong direction can cause data corruption silently.
 
 **Q3. What is a dma_cookie_t and why do we check it?**
 
-A dma_cookie_t is a handle returned by dmaengine_submit. It uniquely identifies
-the queued transfer. dma_submit_error(cookie) detects immediate failure (channel
-error, full queue). Later dma_async_is_tx_complete(chan, cookie) lets you poll
-whether the specific transfer finished.
+> A dma_cookie_t is a handle returned by dmaengine_submit. It uniquely identifies
+> the queued transfer. dma_submit_error(cookie) detects immediate failure (channel
+> error, full queue). Later dma_async_is_tx_complete(chan, cookie) lets you poll
+> whether the specific transfer finished.
 
 **Q4. What happens if we forget to call dma_unmap_single after the transfer?**
 
-The DMA mapping remains active. The cache line is not invalidated so the CPU may
-read stale data from the destination buffer. The IOMMU mapping is not released,
-causing resource leaks. On DMA debug-enabled kernels the kernel will warn about
-the leaked mapping.
+> The DMA mapping remains active. The cache line is not invalidated so the CPU may
+> read stale data from the destination buffer. The IOMMU mapping is not released,
+> causing resource leaks. On DMA debug-enabled kernels the kernel will warn about
+> the leaked mapping.
 
 **Q5. Why do we use wait_for_completion_timeout instead of busy-polling?**
 
-wait_for_completion_timeout puts the calling thread to sleep and is woken up by
-the DMA interrupt handler calling complete(). Busy-polling wastes CPU cycles and
-can block other kernel work. Using a timeout prevents the kernel from sleeping
-forever if the DMA hardware hangs.
+> wait_for_completion_timeout puts the calling thread to sleep and is woken up by
+> the DMA interrupt handler calling complete(). Busy-polling wastes CPU cycles and
+> can block other kernel work. Using a timeout prevents the kernel from sleeping
+> forever if the DMA hardware hangs.
 
 **Q6. What does DMA_PREP_INTERRUPT | DMA_CTRL_ACK mean in dmaengine_prep_dma_memcpy?**
 
-DMA_PREP_INTERRUPT tells the DMA engine to generate a completion interrupt and
-call the descriptor callback when the transfer finishes. Without it the callback
-may never fire. DMA_CTRL_ACK tells the engine it may recycle or free the
-descriptor after the callback executes. Both flags are mandatory for
-interrupt-driven completion with a callback.
+> DMA_PREP_INTERRUPT tells the DMA engine to generate a completion interrupt and
+> call the descriptor callback when the transfer finishes. Without it the callback
+> may never fire. DMA_CTRL_ACK tells the engine it may recycle or free the
+> descriptor after the callback executes. Both flags are mandatory for
+> interrupt-driven completion with a callback.
 
 **Q7. Why is dmaengine_terminate_sync called on timeout instead of just returning?**
 
-A timed-out transfer may still be running in hardware. If we return without
-stopping it, the DMA engine may write to dst_buf after we have freed it or
-repurposed it, causing memory corruption. dmaengine_terminate_sync stops the
-channel and waits until any in-progress callback has completed before returning,
-making cleanup safe.
+> A timed-out transfer may still be running in hardware. If we return without
+> stopping it, the DMA engine may write to dst_buf after we have freed it or
+> repurposed it, causing memory corruption. dmaengine_terminate_sync stops the
+> channel and waits until any in-progress callback has completed before returning,
+> making cleanup safe.
 
 **Q8. What is the role of dma_cap_mask_t and dma_cap_set?**
 
-dma_cap_mask_t is a bitmask of capabilities the caller requires from a DMA
-channel (DMA_MEMCPY, DMA_SLAVE, DMA_CYCLIC, etc.). dma_cap_set(DMA_MEMCPY, mask)
-sets the bit that means the channel must support memory-to-memory copies.
-dma_request_chan_by_mask then searches all registered DMA controllers and returns
-the first channel that satisfies all bits in the mask.
+> dma_cap_mask_t is a bitmask of capabilities the caller requires from a DMA
+> channel (DMA_MEMCPY, DMA_SLAVE, DMA_CYCLIC, etc.). dma_cap_set(DMA_MEMCPY, mask)
+> sets the bit that means the channel must support memory-to-memory copies.
+> dma_request_chan_by_mask then searches all registered DMA controllers and returns
+> the first channel that satisfies all bits in the mask.
 
 **Q9. Can two modules request the same DMA channel simultaneously?**
 
-It depends on whether the controller sets DMA_PRIVATE. If set, channels are
-exclusive and the second request fails. If not set, the dmaengine reference
-counting allows sharing but this is rare for memory-to-memory channels.
-Practically, on STM32 the dma3 channels are treated as private, so one at a time.
+> It depends on whether the controller sets DMA_PRIVATE. If set, channels are
+> exclusive and the second request fails. If not set, the dmaengine reference
+> counting allows sharing but this is rare for memory-to-memory channels.
+> Practically, on STM32 the dma3 channels are treated as private, so one at a time.
 
 **Q10. Why is reinit_completion used inside dev_write instead of init_completion?**
 
-init_completion initialises a fresh completion object and should only be called
-once. Calling it again while another thread waits would corrupt the wait queue.
-reinit_completion atomically resets the done flag to zero, safely reusing the
-same completion object for the next transfer without reinitialising the wait
-queue. It is the correct pattern for reusable completions inside a function
-called repeatedly.
+> init_completion initialises a fresh completion object and should only be called
+> once. Calling it again while another thread waits would corrupt the wait queue.
+> reinit_completion atomically resets the done flag to zero, safely reusing the
+> same completion object for the next transfer without reinitialising the wait
+> queue. It is the correct pattern for reusable completions inside a function
+> called repeatedly.
