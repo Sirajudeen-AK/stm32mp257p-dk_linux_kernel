@@ -10,19 +10,22 @@ TEMP_MOD_SRCS  := $(wildcard $(M)/*.mod.c)
 # 4. Filter OUT both the userspace files AND the temporary build files
 SRCS           := $(filter-out $(USERSPACE_SRC) $(TEMP_MOD_SRCS), $(ALL_SRCS))
 
-# 5. Extract just the filenames (without paths) for objects
-OBJS           := $(notdir $(SRCS:.c=.o))
+# 5. Base names (no path, no .c) - one per kernel module source file
+BASE_NAMES     := $(basename $(notdir $(SRCS)))
 
-# 6. Setup module and file naming conventions
-MODULE_BASE    := $(basename $(notdir $(firstword $(SRCS))))
-MODULE_NAME    := Ukernel_$(MODULE_BASE)
-FILE_NAME      := $(MODULE_NAME).ko
-
+# 6. Each source file becomes its own module: Ukernel_<name>.ko
+MODULE_NAMES   := $(addprefix Ukernel_,$(BASE_NAMES))
+FILE_NAMES     := $(addsuffix .ko,$(MODULE_NAMES))
 
 ifneq ($(KERNELRELEASE),)
-# Kernel build context
-obj-m := $(MODULE_NAME).o
-$(MODULE_NAME)-objs := $(OBJS)
+# Kernel build context: one obj-m entry per source file
+obj-m := $(addsuffix .o,$(MODULE_NAMES))
+
+# For each ModuleX.c -> Ukernel_ModuleX.o built from ModuleX.o
+define MAKE_MODULE_RULE
+Ukernel_$(1)-objs := $(1).o
+endef
+$(foreach b,$(BASE_NAMES),$(eval $(call MAKE_MODULE_RULE,$(b))))
 
 else
 .DEFAULT_GOAL := all
@@ -37,7 +40,6 @@ WINDIR := /mnt/s/_______UBUNTU________/stm32_modules_application
 
 .PHONY: all clean prepare-symvers print-files
 
-# --- NEW DEBUG TARGET ---
 print-files:
 	@echo "========================================================================"
 	@echo " [SUBFOLDER PATH]: $(M)"
@@ -46,10 +48,10 @@ print-files:
 	@echo "************************************************************************"
 	@echo " 🟢 Found Userspace File:  $(notdir $(USERSPACE_SRC))"
 	@echo "------------------------------------------------------------------------"
-	@echo " 🔥 Found Kernel Srcs:   $(notdir $(SRCS))"
+	@echo " 🔥 Found Kernel Srcs:     $(notdir $(SRCS))"
+	@echo " 📦 Modules To Build:      $(FILE_NAMES)"
 	@echo "************************************************************************"
 	@echo " 🟠 Ignored Kernel Temps:  $(notdir $(TEMP_MOD_SRCS))"
-	@echo " 🎯 Target Kernel Objects: $(OBJS)"
 	@echo "========================================================================"
 
 prepare-symvers:
@@ -60,10 +62,14 @@ prepare-symvers:
 all: prepare-symvers
 	$(MAKE) -C $(KDIR) O=$(KBUILD_OUTPUT) M=$(M) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules
 	@mkdir -p $(KO_OUTPUT_DIR)
-	@cp $(M)/$(FILE_NAME) $(KO_OUTPUT_DIR)
-	@cp $(M)/$(FILE_NAME) $(WINDIR)
+	@for f in $(FILE_NAMES); do \
+		cp $(M)/$$f $(KO_OUTPUT_DIR); \
+		cp $(M)/$$f $(WINDIR); \
+	done
 
 clean:
 	$(MAKE) -C $(KDIR) O=$(KBUILD_OUTPUT) M=$(M) clean
-	@rm -f $(KO_OUTPUT_DIR)/$(FILE_NAME)
+	@for f in $(FILE_NAMES); do \
+		rm -f $(KO_OUTPUT_DIR)/$$f; \
+	done
 endif
